@@ -16,33 +16,18 @@
  *
  */
 
-package org.apache.skywalking.oap.server.core.server;
+package org.apache.skywalking.oap.server.receiver.browser.provider.parser.performance.decorators;
 
-import io.grpc.BindableService;
-import io.grpc.ServerInterceptor;
-import io.grpc.ServerServiceDefinition;
-import org.apache.skywalking.oap.server.library.server.grpc.GRPCServer;
+public interface BrowserPerfDecorator {
+    String getService();
 
-public class GRPCHandlerRegisterImpl implements GRPCHandlerRegister {
+    void setTime(long time);
 
-    private final GRPCServer server;
+    String getServiceVersion();
 
-    public GRPCHandlerRegisterImpl(GRPCServer server) {
-        this.server = server;
-    }
+    void setServiceVersion(String serviceVersion);
 
-    @Override
-    public void addHandler(BindableService handler) {
-        server.addHandler(handler);
-    }
+    String getPagePath();
 
-    @Override
-    public void addHandler(ServerServiceDefinition definition) {
-        server.addHandler(definition);
-    }
-
-    @Override
-    public void addFilter(ServerInterceptor interceptor) {
-        server.addInterceptor(interceptor);
-    }
+    void setPagePath(String pagePath);
 }
