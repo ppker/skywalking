@@ -147,6 +147,10 @@ public class DefaultScopeDefine {
     public static final int ASYNC_PROFILER_TASK = 85;
     public static final int ASYNC_PROFILER_TASK_LOG = 86;
 
+    public static final int BROWSER_APP_WEB_VITALS_PAGE_PERF = 87;
+    public static final int BROWSER_APP_RESOURCE_PERF = 88;
+    public static final int BROWSER_APP_WEB_INTERACTION_PAGE_PERF = 89;
+
     /**
      * Catalog of scope, the metrics processor could use this to group all generated metrics by oal rt.
      */

@@ -28,6 +28,7 @@ expression
     | expression mulDivMod expression  # mulDivModOp
     | expression addSub expression     # addSubOp
     | expression compare expression    # compareOp
+    | expression bool_operator expression #boolOP
     | aggregation L_PAREN expression R_PAREN # aggregationOp
     | mathematical_operator0 L_PAREN expression R_PAREN #mathematicalOperator0OP
     | mathematical_operator1 L_PAREN expression COMMA parameter R_PAREN #mathematicalOperator1OP
@@ -39,6 +40,7 @@ expression
     | aggregateLabels L_PAREN expression COMMA aggregateLabelsFunc R_PAREN #aggregateLabelsOp
     | sort_values L_PAREN expression (COMMA INTEGER)? COMMA order R_PAREN #sortValuesOP
     | sort_label_values L_PAREN expression COMMA order COMMA labelNameList R_PAREN #sortLabelValuesOP
+    | baseline L_PAREN metric COMMA baseline_type R_PAREN #baselineOP
     ;
 
 expressionList
@@ -82,6 +84,9 @@ topNOf: TOP_N_OF;
 logical_operator:
     VIEW_AS_SEQ | IS_PRESENT;
 
+bool_operator:
+    AND | OR;
+
 relabels: RELABELS;
 
 parameter:      INTEGER;
@@ -106,3 +111,6 @@ attributeName:
     ATTR0 | ATTR1 | ATTR2 | ATTR3 | ATTR4 | ATTR5;
 attribute: attributeName (EQ | NEQ) VALUE_STRING;
 attributeList: attribute (COMMA attribute)*;
+
+baseline: BASELINE;
+baseline_type: VALUE | UPPER | LOWER;
