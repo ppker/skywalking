@@ -19,16 +19,20 @@
 package org.apache.skywalking.mqe.rt;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.mqe.rt.grammar.MQEParser;
 import org.apache.skywalking.mqe.rt.grammar.MQEParserBaseVisitor;
 import org.apache.skywalking.mqe.rt.operation.AggregateLabelsOp;
 import org.apache.skywalking.mqe.rt.operation.AggregationOp;
 import org.apache.skywalking.mqe.rt.operation.BinaryOp;
+import org.apache.skywalking.mqe.rt.operation.BoolOp;
 import org.apache.skywalking.mqe.rt.operation.CompareOp;
 import org.apache.skywalking.mqe.rt.operation.LogicalFunctionOp;
 import org.apache.skywalking.mqe.rt.operation.MathematicalFunctionOp;
@@ -36,6 +40,11 @@ import org.apache.skywalking.mqe.rt.operation.SortLabelValuesOp;
 import org.apache.skywalking.mqe.rt.operation.SortValuesOp;
 import org.apache.skywalking.mqe.rt.operation.TopNOfOp;
 import org.apache.skywalking.mqe.rt.operation.TrendOp;
+import org.apache.skywalking.oap.server.ai.pipeline.AIPipelineModule;
+import org.apache.skywalking.oap.server.ai.pipeline.services.BaselineQueryService;
+import org.apache.skywalking.oap.server.ai.pipeline.services.PredictServiceMetrics;
+import org.apache.skywalking.oap.server.core.analysis.metrics.DataLabel;
+import org.apache.skywalking.oap.server.core.analysis.metrics.DataTable;
 import org.apache.skywalking.oap.server.core.query.mqe.ExpressionResult;
 import org.apache.skywalking.mqe.rt.exception.IllegalExpressionException;
 import org.apache.skywalking.oap.server.core.query.mqe.ExpressionResultType;
@@ -46,21 +55,56 @@ import org.apache.skywalking.oap.server.core.query.enumeration.Step;
 import org.apache.skywalking.oap.server.core.query.type.KeyValue;
 import org.apache.skywalking.oap.server.core.query.type.debugging.DebuggingSpan;
 import org.apache.skywalking.oap.server.core.query.type.debugging.DebuggingTraceContext;
+import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 
 import static org.apache.skywalking.oap.server.core.query.type.debugging.DebuggingTraceContext.TRACE_CONTEXT;
+import static org.apache.skywalking.oap.server.core.storage.query.IMetricsQueryDAO.Util.composeLabelConditions;
 
 @Slf4j
 public abstract class MQEVisitorBase extends MQEParserBaseVisitor<ExpressionResult> {
+
+    private final BiFunction<String, Step, String> getPredictTimeBucket = (timePoint, step) -> {
+        switch (step) {
+            case MINUTE:
+                return Long.toString(Long.parseLong(timePoint) / 100);
+            case HOUR:
+                return timePoint;
+            case DAY:
+                return Long.toString(Long.parseLong(timePoint) * 100);
+            default:
+                throw new IllegalArgumentException("Unsupported time step: " + step);
+        }
+    };
+    private BaselineQueryService baselineQueryService;
+    protected final ModuleManager moduleManager;
     public final Step queryStep;
 
-    protected MQEVisitorBase(final Step queryStep) {
+    protected MQEVisitorBase(final ModuleManager moduleManager, final Step queryStep) {
+        this.moduleManager = moduleManager;
         this.queryStep = queryStep;
+    }
+
+    private BaselineQueryService getBaselineQueryService() {
+        if (baselineQueryService == null) {
+            this.baselineQueryService = moduleManager.find(AIPipelineModule.NAME)
+                                                    .provider()
+                                                    .getService(BaselineQueryService.class);
+        }
+        return baselineQueryService;
     }
 
     @Override
     public ExpressionResult visitParensOp(MQEParser.ParensOpContext ctx) {
-        return visit(ctx.expression());
+        ExpressionResult result = visit(ctx.expression());
+        if (result.isBoolResult()) {
+            // The other operation will change the bool result of the expression
+            if (!(ctx.parent instanceof MQEParser.BoolOPContext
+                || ctx.parent instanceof MQEParser.ParensOpContext)) {
+                result.setBoolResult(false);
+            }
+        }
+        return result;
     }
 
     @Override
@@ -342,7 +386,10 @@ public abstract class MQEVisitorBase extends MQEParserBaseVisitor<ExpressionResu
             int opType = ctx.compare().getStart().getType();
             try {
                 ExpressionResult result = CompareOp.doCompareOP(left, right, opType);
-                if (ctx.parent == null) {
+                // The following operation won't change the bool result of the expression
+                if (ctx.parent == null ||
+                    ctx.parent instanceof MQEParser.ParensOpContext ||
+                    ctx.parent instanceof MQEParser.BoolOPContext) {
                     result.setBoolResult(true);
                 }
                 return result;
@@ -426,6 +473,47 @@ public abstract class MQEVisitorBase extends MQEParserBaseVisitor<ExpressionResu
     }
 
     @Override
+    public ExpressionResult visitBoolOP(MQEParser.BoolOPContext ctx) {
+        DebuggingTraceContext traceContext = TRACE_CONTEXT.get();
+        DebuggingSpan span = traceContext.createSpan("MQE Bool OP: " + ctx.getText());
+        try {
+            ExpressionResult left = visit(ctx.expression(0));
+            if (StringUtil.isNotBlank(left.getError())) {
+                return left;
+            }
+            ExpressionResult right = visit(ctx.expression(1));
+            if (StringUtil.isNotBlank(right.getError())) {
+                return right;
+            }
+            int opType = ctx.bool_operator().getStart().getType();
+            try {
+                ExpressionResult result = BoolOp.doBoolOp(left, right, opType);
+                if (ctx.parent == null ||
+                    ctx.parent instanceof MQEParser.ParensOpContext ||
+                    ctx.parent instanceof MQEParser.BoolOPContext) {
+                    result.setBoolResult(true);
+                }
+                return result;
+            } catch (IllegalExpressionException e) {
+                return getErrorResult(e.getMessage());
+            }
+        } finally {
+            traceContext.stopSpan(span);
+        }
+    }
+
+    @Override
+    public ExpressionResult visitBaselineOP(MQEParser.BaselineOPContext ctx) {
+        DebuggingTraceContext traceContext = TRACE_CONTEXT.get();
+        DebuggingSpan span = traceContext.createSpan("MQE Baseline OP: " + ctx.getText());
+        try {
+            return visit(ctx.metric());
+        } finally {
+            traceContext.stopSpan(span);
+        }
+    }
+
+    @Override
     public abstract ExpressionResult visitMetric(MQEParser.MetricContext ctx);
 
     protected KeyValue buildLabel(MQEParser.LabelContext ctx) {
@@ -468,4 +556,101 @@ public abstract class MQEVisitorBase extends MQEParserBaseVisitor<ExpressionResu
         result.setError(error);
         return result;
     }
+
+    @SneakyThrows
+    protected List<MQEValues> queryBaseline(String serviceName,
+                                            String metricName,
+                                            ArrayList<String> pointOfTimes,
+                                            int valueType) {
+        List<MQEValues> mqeValuesList = new ArrayList<>();
+        MQEValues mqeValues = new MQEValues();
+        for (String pointOfTime : pointOfTimes) {
+            Map<String, PredictServiceMetrics.PredictMetricsValue> predictValues = getBaselineQueryService().queryPredictMetricsFromCache(
+                serviceName, getPredictTimeBucket.apply(pointOfTime, queryStep));
+            PredictServiceMetrics.PredictMetricsValue predictValue = predictValues.get(metricName);
+            MQEValue mqeValue = new MQEValue();
+            //use timeBucket as id here
+            mqeValue.setId(pointOfTime);
+            if (predictValue == null || predictValue.getSingleValue() == null) {
+                mqeValue.setEmptyValue(true);
+            } else {
+                mqeValue.setDoubleValue(getValueByType(predictValue.getSingleValue(), valueType));
+            }
+            mqeValues.getValues().add(mqeValue);
+        }
+        mqeValuesList.add(mqeValues);
+        return mqeValuesList;
+    }
+
+    @SneakyThrows
+    protected List<MQEValues> queryLabeledBaseline(String serviceName,
+                                                   String metricName,
+                                                   List<KeyValue> queryLabels,
+                                                   ArrayList<String> pointOfTimes,
+                                                   int valueType) {
+        Map<String, DataTable> timeValues = new HashMap<>();
+        for (String pointOfTime : pointOfTimes) {
+            Map<String, PredictServiceMetrics.PredictMetricsValue> predictValues = getBaselineQueryService().queryPredictMetricsFromCache(
+                serviceName, getPredictTimeBucket.apply(pointOfTime, queryStep));
+            PredictServiceMetrics.PredictMetricsValue predictValue = predictValues.get(metricName);
+            if (predictValue != null && predictValue.getLabeledValue() != null) {
+                DataTable dataTable = new DataTable();
+                for (PredictServiceMetrics.PredictLabelValue labeledValue : predictValue.getLabeledValue()) {
+                    DataLabel dataLabel = new DataLabel();
+                    if (labeledValue != null) {
+                        dataLabel.putAll(labeledValue.getLabels());
+                        dataTable.put(dataLabel, getValueByType(labeledValue.getValue(), valueType));
+                    }
+                }
+                timeValues.put(pointOfTime, dataTable);
+            }
+        }
+        return buildLabledMqeValuesList(timeValues, queryLabels, pointOfTimes);
+    }
+
+    private long getValueByType(PredictServiceMetrics.PredictSingleValue predictSingleValue,
+                                int valueType) {
+        switch (valueType) {
+            case MQEParser.VALUE:
+                return predictSingleValue.getValue();
+            case MQEParser.UPPER:
+                return predictSingleValue.getUpperValue();
+            case MQEParser.LOWER:
+                return predictSingleValue.getLowerValue();
+            default:
+                throw new IllegalArgumentException("Unsupported predicted value type: " + valueType);
+        }
+    }
+
+    protected List<MQEValues> buildLabledMqeValuesList(Map<String, DataTable> timeValues, List<KeyValue> queryLabels,
+                                                       ArrayList<String> pointOfTimes) {
+        List<MQEValues> mqeValuesList = new ArrayList<>();
+        List<String> labelConditions = composeLabelConditions(queryLabels, timeValues.values());
+        for (String labelCondition : labelConditions) {
+            MQEValues mqeValues = new MQEValues();
+            for (String pointOfTime : pointOfTimes) {
+                DataTable dataTable = timeValues.getOrDefault(pointOfTime, new DataTable());
+                Long metricValue = dataTable.get(labelCondition);
+                MQEValue mqeValue = new MQEValue();
+                //use timeBucket as id here
+                mqeValue.setId(pointOfTime);
+                if (metricValue != null) {
+                    mqeValue.setDoubleValue(metricValue);
+                } else {
+                    mqeValue.setEmptyValue(true);
+                }
+                mqeValues.getValues().add(mqeValue);
+            }
+            DataLabel dataLabel = new DataLabel();
+            dataLabel.put(labelCondition);
+            for (Map.Entry<String, String> label : dataLabel.entrySet()) {
+                mqeValues.getMetric().getLabels().add(new KeyValue(label.getKey(), label.getValue()));
+            }
+            //Sort labels by key in natural order by default
+            mqeValues.getMetric().sortLabelsByKey(Comparator.naturalOrder());
+            mqeValuesList.add(mqeValues);
+        }
+        return mqeValuesList;
+    }
 }
+
