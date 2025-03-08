@@ -48,7 +48,7 @@ Tomcat:
   languages: Java
 HttpClient:
   id: 2
-  languages: Java,C#,Node.js
+  languages: Java,C#,Node.js,Ruby
 Dubbo:
   id: 3
   languages: Java,Golang
@@ -104,7 +104,7 @@ JettyServer:
   languages: Java
 Memcached:
   id: 20
-  languages: Java,PHP
+  languages: Java,PHP,Ruby
 ShardingJDBC:
   id: 21
   languages: Java
@@ -185,7 +185,7 @@ activemq-consumer:
   languages: Java
 Elasticsearch:
   id: 47
-  languages: Java,Python,Golang
+  languages: Java,Python,Golang,Ruby
 transport-client:
   id: 48
   languages: Java
@@ -531,6 +531,9 @@ DNS:
   languages: ebpf
 Caffeine:
   id: 160
+  languages: Java
+ThreadPerTask-executor:
+  id: 161
   languages: Java
 
 # .NET/.NET Core components

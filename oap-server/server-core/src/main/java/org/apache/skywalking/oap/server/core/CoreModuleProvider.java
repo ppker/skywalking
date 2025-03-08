@@ -20,8 +20,6 @@ package org.apache.skywalking.oap.server.core;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import org.apache.skywalking.oap.server.ai.pipeline.AIPipelineModule;
-import org.apache.skywalking.oap.server.ai.pipeline.services.api.HttpUriRecognition;
 import org.apache.skywalking.oap.server.configuration.api.ConfigurationModule;
 import org.apache.skywalking.oap.server.configuration.api.DynamicConfigurationService;
 import org.apache.skywalking.oap.server.core.analysis.ApdexThresholdConfig;
@@ -48,6 +46,7 @@ import org.apache.skywalking.oap.server.core.config.DownSamplingConfigService;
 import org.apache.skywalking.oap.server.core.config.HierarchyDefinitionService;
 import org.apache.skywalking.oap.server.core.config.IComponentLibraryCatalogService;
 import org.apache.skywalking.oap.server.core.config.NamingControl;
+import org.apache.skywalking.oap.server.core.config.group.EndpointNameGroupService;
 import org.apache.skywalking.oap.server.core.config.group.EndpointNameGrouping;
 import org.apache.skywalking.oap.server.core.config.group.EndpointNameGroupingRuleWatcher;
 import org.apache.skywalking.oap.server.core.config.group.openapi.EndpointNameGroupingRule4OpenapiWatcher;
@@ -102,6 +101,8 @@ import org.apache.skywalking.oap.server.core.storage.model.ModelCreator;
 import org.apache.skywalking.oap.server.core.storage.model.ModelManipulator;
 import org.apache.skywalking.oap.server.core.storage.model.StorageModels;
 import org.apache.skywalking.oap.server.core.storage.ttl.DataTTLKeeperTimer;
+import org.apache.skywalking.oap.server.core.watermark.WatermarkGRPCInterceptor;
+import org.apache.skywalking.oap.server.core.watermark.WatermarkWatcher;
 import org.apache.skywalking.oap.server.core.worker.IWorkerInstanceGetter;
 import org.apache.skywalking.oap.server.core.worker.IWorkerInstanceSetter;
 import org.apache.skywalking.oap.server.core.worker.WorkerInstancesService;
@@ -114,6 +115,7 @@ import org.apache.skywalking.oap.server.library.server.grpc.GRPCServer;
 import org.apache.skywalking.oap.server.library.server.http.HTTPServer;
 import org.apache.skywalking.oap.server.library.server.http.HTTPServerConfig;
 import org.apache.skywalking.oap.server.telemetry.TelemetryModule;
+import org.apache.skywalking.oap.server.telemetry.api.MetricsCollector;
 import org.apache.skywalking.oap.server.telemetry.api.TelemetryRelatedContext;
 
 /**
@@ -140,6 +142,7 @@ public class CoreModuleProvider extends ModuleProvider {
     private EndpointNameGroupingRule4OpenapiWatcher endpointNameGroupingRule4OpenapiWatcher;
     private EndpointNameGrouping endpointNameGrouping;
     private HierarchyService hierarchyService;
+    private WatermarkWatcher watermarkWatcher;
 
     public CoreModuleProvider() {
         super();
@@ -186,6 +189,7 @@ public class CoreModuleProvider extends ModuleProvider {
             endpointNameGrouping
         );
         this.registerServiceImplementation(NamingControl.class, namingControl);
+        this.registerServiceImplementation(EndpointNameGroupService.class, endpointNameGrouping);
         MeterEntity.setNamingControl(namingControl);
         try {
             endpointNameGroupingRuleWatcher = new EndpointNameGroupingRuleWatcher(
@@ -379,18 +383,20 @@ public class CoreModuleProvider extends ModuleProvider {
         apdexThresholdConfig = new ApdexThresholdConfig(this);
         ApdexMetrics.setDICT(apdexThresholdConfig);
         loggingConfigWatcher = new LoggingConfigWatcher(this);
+
+        WatermarkGRPCInterceptor.create();
+        this.watermarkWatcher = new WatermarkWatcher(getManager(),
+                                                     moduleConfig.getMaxHeapMemoryUsagePercent(),
+                                                     moduleConfig.getMaxDirectMemoryUsage());
     }
 
     @Override
     public void start() throws ModuleStartException {
         grpcServer.addHandler(new RemoteServiceHandler(getManager()));
         grpcServer.addHandler(new HealthCheckServiceHandler());
+        grpcServer.addInterceptor(WatermarkGRPCInterceptor.INSTANCE);
 
-        endpointNameGrouping.startHttpUriRecognitionSvr(
-            getManager()
-                .find(AIPipelineModule.NAME)
-                .provider()
-                .getService(HttpUriRecognition.class),
+        endpointNameGrouping.prepareForHTTPUrlRecognition(
             getService(MetadataQueryService.class),
             moduleConfig.getSyncPeriodHttpUriRecognitionPattern(),
             moduleConfig.getTrainingPeriodHttpUriRecognitionPattern(),
@@ -471,6 +477,8 @@ public class CoreModuleProvider extends ModuleProvider {
             throw new ModuleStartException(e.getMessage(), e);
         }
         hierarchyService.startAutoMatchingServiceHierarchy();
+
+        watermarkWatcher.start(getManager().find(TelemetryModule.NAME).provider().getService(MetricsCollector.class));
     }
 
     @Override
@@ -478,7 +486,6 @@ public class CoreModuleProvider extends ModuleProvider {
         return new String[] {
             TelemetryModule.NAME,
             ConfigurationModule.NAME,
-            AIPipelineModule.NAME
         };
     }
 }

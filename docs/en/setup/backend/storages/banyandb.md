@@ -10,8 +10,15 @@ bydb.version=x.y
 # BanyanDB API version is the version number of the BanyanDB query APIs
 # OAP server has bundled implementation of BanyanDB Java client.
 # Please check BanyanDB documentation for the API version compatibility.
+# https://skywalking.apache.org/docs/skywalking-banyandb/next/installation/versions
 # Each `bydb.api.version` could have multiple compatible release version(`bydb.version`).
 bydb.api.version=x.y
+```
+
+If the BanyanDB server API version is not compatible with the OAP server, the OAP server will not start, and the following error message will be displayed:
+```shell
+... ERROR [] - ... Incompatible BanyanDB server API version: 0.x. But accepted versions: 0.y
+org.apache.skywalking.oap.server.library.module.ModuleStartException: Incompatible BanyanDB server API version...
 ```
 
 ### Configuration

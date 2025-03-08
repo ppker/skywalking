@@ -13,8 +13,9 @@
     source tar from the website and publish them to your private maven repository.
 * [Breaking Change] Remove H2 as storage option permanently. BanyanDB 0.8(OAP 10.2 required) is easy, stable and 
   production-ready. Don't need H2 as default storage anymore.
-* Support `labelAvg` function in the OAL engine.
-* Added `maxLabelCount` parameter in the `labelCount` function of OAL to limit the number of labels can be counted.
+* [Breaking Change] Bump up BanyanDB server version to 0.8.0. This version is not compatible with the previous 
+  versions. Please upgrade the BanyanDB server to 0.8.0 before upgrading OAP to 10.2.0.
+* Bump up nodejs to v22.14.0 for the latest UI(booster-ui) compiling. 
 
 #### OAP Server
 
@@ -46,7 +47,7 @@
 * Support `Get Effective TTL Configurations` API.
 * Fix `ServerStatusService.statusWatchers` concurrent modification.
 * Add protection for dynamic config change propagate chain.
-* Add Ruby component IDs.
+* Add Ruby component IDs(HttpClient=2, Redis=7, Memcached=20, Elasticsearch=47, Ruby=12000, Sinatra=12001).
 * Add component ID(160) for Caffeine.
 * Alarm: Support store and query the metrics snapshot when the alarm is triggered.
 * Alarm: Remove unused `Alarm Trend` query.
@@ -56,6 +57,27 @@
 * Fix `AvgHistogramPercentileFunction` doesn't have proper field definition for `ranks`.
 * BanyanDB: Support the new Property data module.
 * MQE: Support `top_n_of` function for merging multiple metrics topn query.
+* Support `labelAvg` function in the OAL engine.
+* Added `maxLabelCount` parameter in the `labelCount` function of OAL to limit the number of labels can be counted.
+* Adapt the new Browser API(`/browser/perfData/webVitals`, `/browser/perfData/webInteractions`, `/browser/perfData/resources`) protocol.
+* Add Circuit Breaking mechanism.
+* BanyanDB: Add support for compatibility checks based on the BanyanDB server's API version.
+* MQE: Support `&&(and)`, `||(or)` bool operators.
+* OAP self observability: Add JVM heap and direct memory used metrics.
+* OAP self observability: Add watermark circuit break/recover metrics.
+* AI Pipeline: Support query baseline metrics names and predict metrics value.
+* Add `Get Node List in the Cluster` API.
+* Add type descriptor when converting Envoy logs to JSON for persistence, to avoid conversion error.
+* Bseline: Support query baseline with MQE and use in the Alarm Rule.
+* Bump up netty to 4.11.118 to fix CVE-2025-24970.
+* Add `Get Alarm Runtime Status` API.
+* Add `lock` when query the Alarm metrics window values.
+* Add a fail-safe mechanism to prevent traffic metrics inconsistent between in-memory and database server.
+* Add more clear logs when oap-cluster-internal data(metrics/traffic) format is inconsistent.
+* Optimize metrics cache loading when trace latency greater than cache timeout. 
+* Allow calling `lang.groovy.GString` in DSL.
+* BanyanDB: fix alarm query result without sort. 
+* Add a component ID for Virtual thread executor
 
 #### UI
 
@@ -78,6 +100,14 @@
 * Optimize Trace Profiling widget.
 * Implement Async Profiling widget.
 * Fix inaccurate data query issue on endpoint topology page.
+* Update browser dashboard for the new metrics.
+* Visualize `Snapshot` on `Alerting` page.
+* OAP self observability dashboard: Add JVM heap and direct memory used metrics.
+* OAP self observability dashboard: Add watermark circuit break/recover metrics.
+* Implement the legend selector in metrics charts.
+* Fix repetitive names in router.
+* Bump up dependencies.
+* Fixes tooltips cannot completely display metrics information.
 
 #### Documentation
 * Update release document to adopt newly added revision-based process.
@@ -87,6 +117,10 @@
 * Add `Get Effective TTL Configurations` API documentation.
 * Add Status APIs docs.
 * Simplified the release process with removing maven central publish relative processes.
+* Add Circuit Breaking mechanism doc.
+* Add `Get Node List in the Cluster` API doc.
+* Remove `meter.md` doc, because `mal.md` has covered all the content.
+* Merge `browser-http-api-protocol.md` doc into `browser-protocol.md`.
 
 
 All issues and pull requests are [here](https://github.com/apache/skywalking/milestone/224?closed=1)
